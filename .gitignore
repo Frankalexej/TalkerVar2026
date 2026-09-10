@@ -1,0 +1,6 @@
+data/
+slurm_config/
+__pycache__/
+weights/
+*.csv
+*.zip
