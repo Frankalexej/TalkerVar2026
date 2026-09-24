@@ -1,0 +1,19 @@
+name: talkervar
+channels:
+  - conda-forge
+dependencies:
+  - python=3.11
+  - numpy
+  - pandas
+  - scipy
+  - scikit-learn
+  - threadpoolctl>=3.5
+  - matplotlib
+  - joblib
+  - ipykernel
+  - jupyter_client
+  - nbformat
+  - notebook
+  - pip
+  - pip:
+      - torch>=2.1,<3
