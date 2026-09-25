@@ -30,6 +30,20 @@ class ModelConfig:
 
 
 @dataclass
+class NeuralModelConfig(ModelConfig):
+    """Only the hidden-layer activation changes beyond the existing width setting."""
+    activation: str = "relu"
+
+
+@dataclass
+class SharedWModelConfig(ModelConfig):
+    """Additional settings for the shared-w extension; old defaults are untouched."""
+    w_dim: int = 2  # One vector-valued w per token, shared by BOTH category factors.
+    prior_hidden_dims: tuple[int, ...] = (64,)
+    objective: str = "paper"  # "paper" (Eq. 5 estimator) or "structured" (exact ELBO MC).
+
+
+@dataclass
 class TrainConfig:
     seed: int = 42
     device: str = "cpu"  # "auto", "cpu", or "cuda"

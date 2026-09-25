@@ -90,7 +90,7 @@ def fit_neural(model, method: str, data: VowelData, config: ExperimentConfig, ou
     settings = config.training
     device = resolve_device(settings.device)
     model.to(device)
-    if method == "gmvae":
+    if method in ("gmvae", "gmvae_neural", "gmvae_shared_w"):
         initialization = initialize_gmvae(model, data, config, device)
         initialization.to_csv(output_dir / "pretraining_history.csv", index=False)
     loaders = {part: make_loader(data, part, settings.batch_size, settings.seed)
@@ -112,7 +112,7 @@ def fit_neural(model, method: str, data: VowelData, config: ExperimentConfig, ou
                     x, y = x.to(device), y.to(device)
                     if training:
                         optimizer.zero_grad(set_to_none=True)
-                    loss, components = (model.loss(x, generator=generator) if method == "gmvae"
+                    loss, components = (model.loss(x, generator=generator) if method in ("gmvae", "gmvae_neural", "gmvae_shared_w")
                                         else model.loss(x, y))
                     if not torch.isfinite(loss):
                         raise FloatingPointError(f"Non-finite {method} loss at epoch {epoch}.")

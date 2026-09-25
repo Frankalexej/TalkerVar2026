@@ -109,3 +109,79 @@ you need uncertainty estimates; the initial full run is one seed.
 The CSV remains at the repository root and is not bundled with source code.
 Relative config paths resolve against the repository root, which allows the same
 entry point to be called from a server/Slurm working directory later.
+
+## Shared continuous w extension
+
+Open **`train_shared_w.ipynb`** for the paper-inspired two-category extension.
+`SharedWGMVAE` is an additional class in `models.py`; the original model classes,
+baseline config, and baseline notebook remain available unchanged.
+
+```bash
+python src/train.py --config src/configs/shared_w.py
+```
+
+It adds one shared vector-valued auxiliary variable `w ~ N(0,I)` per token.
+Both category axes condition the same acoustic latent `z`, and a neural network
+maps the same `w` sample to means and variances for every phoneme/speaker pair.
+The encoder gains mean/logvariance heads for `q(w|x)`, and the objective gains its
+analytic KL to the standard normal. The decoder still receives only `z`.
+The default `w_dim=2` denotes one 2D random vector; set it to 1 for a scalar.
+
+The reference is Dilokthanakul et al., *Deep Unsupervised Clustering with Gaussian
+Mixture Variational Autoencoders*, arXiv:1611.02648v2, sections 3.1–3.4 and Appendix A.
+Our observed `x` is their `y`; our continuous `z` is their `x`; our categorical
+pair replaces their single categorical `z`. Their auxiliary `w` keeps its name.
+This extension retains the two-factor mean decomposition and penalizes the total
+double-centered interaction at each sampled `w`, including the conditional output.
+
+`SharedWModelConfig.objective` makes an estimator distinction explicit:
+
+- `paper` (default): the paper's Eq. (5) component-KL estimator plus reconstruction,
+  sample-wise categorical KL, `w` KL, and the existing interaction penalty.
+- `structured`: an exact Monte Carlo ELBO estimator for the stated posterior
+  `q(z|x) q(w|x) p(categories|z,w)`, retaining responsibility-dependent log-density
+  terms inside the sample expectation. Tests verify its equivalence to marginalizing
+  the mixture with `logsumexp`.
+
+The paper estimator is not generally the exact structured ELBO, because its
+responsibilities depend on the same `z` being integrated. The notebook derives this
+distinction. It also notes the previous model's different categorical-KL averaging;
+this first comparison is not a perfectly isolated causal ablation of `w` alone.
+No minimum-information threshold, MI reward, or additional supervision is enabled.
+
+New results go to `outputs/shared_w/` and include `w`-usage diagnostics. The new
+notebook verifies identical CSV hash, preprocessing, and split assignments against
+the saved baseline before plotting a comparison. If baseline artifacts are absent
+on another machine, it can still train and evaluate the new model on its own.
+
+## Original-model neural grid search
+
+Use `search_neural_grid.ipynb` and `configs/neural_grid.py` to search only the
+neural and optimizer settings of the original VaDE. `NeuralVaDE` adds configurable
+hidden activations while inheriting the original statistical methods unchanged.
+
+```bash
+python src/train_grid.py --config src/configs/neural_grid.py
+python src/train_grid.py --config src/configs/neural_grid.py --resume outputs/neural_grid/RUN_DIRECTORY
+```
+
+The default Cartesian grid is 3 width/depth settings x 2 activations x 2 learning
+rates x 2 batch sizes (24 configurations), plus the original control. Every model
+uses all selected training tokens. Screen for 30 epochs, select two non-control
+finalists using validation geometric phoneme/speaker accuracy, then retrain those
+and the control for up to 100 epochs at three seeds. Each individual checkpoint
+still minimizes unsupervised validation loss. Configuration selection uses mean
+validation recognition over seeds; it is explicitly label-informed selection.
+
+No changes to latent dimension, category counts, likelihood variance, interaction
+penalty, mixture priors, original loss formula, or initialization method are allowed
+as grid axes. Search workers receive only train/validation arrays. Test recognition
+is computed after the winning configuration is saved, only for the winner and
+control across all seeds. The old test set has already been inspected, so this is
+exploratory and three seeds do not establish formal statistical significance.
+
+Every trial saves a log, history, checkpoint and validation metrics. Search output
+includes screening/confirmation leaderboards, a selection record, test results,
+paired seed differences, source hashes and `best_config.py`. The latter can be run
+directly with `python src/train.py --config .../best_config.py`. Resume validates
+the plan, source hashes and CSV hash before reusing completed trials.

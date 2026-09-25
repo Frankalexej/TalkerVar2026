@@ -38,7 +38,7 @@ def predict_neural(model, method, x, batch_size, seed):
     model.eval()
     for start in range(0, len(x), batch_size):
         batch = torch.from_numpy(x[start:start + batch_size]).to(device)
-        if method == "gmvae":
+        if method in ("gmvae", "gmvae_neural", "gmvae_shared_w"):
             q = model.category_probabilities(batch, generator=generator)
             predictions.append(torch.stack([q.sum(2).argmax(1), q.sum(1).argmax(1)], 1).cpu().numpy())
             probabilities.append(q.cpu().numpy())
@@ -58,3 +58,28 @@ def mixture_diagnostics(q):
                 "active_argmax_categories": int(len(np.unique(probabilities.argmax(1))))}
     return {"phoneme": describe(q.sum(2)), "speaker": describe(q.sum(1)),
             "joint": describe(q.reshape(len(q), -1))}
+
+
+@torch.no_grad()
+def shared_w_diagnostics(model, x, batch_size):
+    """Does the new posterior/prior use w? No semantic interpretation is assumed."""
+    device = next(model.parameters()).device
+    means, logvars = [], []
+    model.eval()
+    for start in range(0, len(x), batch_size):
+        _, _, mean, logvar = model.posterior_parameters(torch.from_numpy(x[start:start + batch_size]).to(device))
+        means.append(mean.cpu().numpy())
+        logvars.append(logvar.cpu().numpy())
+    mean, logvar = np.concatenate(means), np.concatenate(logvars)
+    kl_per_dim = 0.5 * (mean ** 2 + np.exp(logvar) - 1 - logvar)
+    grid = torch.cat([torch.zeros(1, model.config.w_dim), torch.eye(model.config.w_dim),
+                      -torch.eye(model.config.w_dim)]).to(device)
+    prior_mean, prior_logvar, _ = model.conditional_parameters(grid)
+    return {
+        "mean_kl_to_standard_normal_nats": float(kl_per_dim.sum(1).mean()),
+        "kl_per_dimension_nats": kl_per_dim.mean(0).tolist(),
+        "posterior_mean_std_across_tokens": mean.std(0).tolist(),
+        "mean_posterior_std": np.exp(0.5 * logvar).mean(0).tolist(),
+        "prior_mean_change_rms_at_plus_minus_unit_w": float((prior_mean[1:] - prior_mean[:1]).square().mean().sqrt()),
+        "prior_logvar_change_rms_at_plus_minus_unit_w": float((prior_logvar[1:] - prior_logvar[:1]).square().mean().sqrt()),
+    }

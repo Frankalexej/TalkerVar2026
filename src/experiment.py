@@ -15,10 +15,10 @@ import pandas as pd
 import torch
 from sklearn.neighbors import KNeighborsClassifier
 
-from src.config import ExperimentConfig, project_path
+from src.config import ExperimentConfig, SharedWModelConfig, NeuralModelConfig, project_path
 from src.data import prepare_data
-from src.evaluation import fit_alignment, mixture_diagnostics, predict_neural, score_predictions
-from src.models import TwoFactorVaDE, VowelClassifier
+from src.evaluation import fit_alignment, mixture_diagnostics, predict_neural, score_predictions, shared_w_diagnostics
+from src.models import TwoFactorVaDE, VowelClassifier, SharedWGMVAE, NeuralVaDE
 from src.training import fit_neural, seed_everything
 
 
@@ -28,8 +28,12 @@ def write_json(path, value):
 
 def run_experiment(config: ExperimentConfig, data=None) -> Path:
     """Train selected methods and save a fresh, self-contained run directory."""
-    if set(config.methods) - {"gmvae", "knn", "classifier"} or not config.methods:
-        raise ValueError("methods must select gmvae, knn and/or classifier.")
+    if set(config.methods) - {"gmvae", "gmvae_neural", "gmvae_shared_w", "knn", "classifier"} or not config.methods:
+        raise ValueError("Unknown method; use gmvae, gmvae_neural, gmvae_shared_w, knn or classifier.")
+    if "gmvae_shared_w" in config.methods and not isinstance(config.model, SharedWModelConfig):
+        raise TypeError("gmvae_shared_w requires SharedWModelConfig; see src/configs/shared_w.py.")
+    if "gmvae_neural" in config.methods and not isinstance(config.model, NeuralModelConfig):
+        raise TypeError("gmvae_neural requires NeuralModelConfig.")
     if config.training.epochs < 1 or config.training.pretrain_epochs < 0:
         raise ValueError("epochs must be positive and pretrain_epochs nonnegative.")
     if config.model.observation_variance <= 0 or min(config.model.train_mc_samples, config.model.eval_mc_samples) < 1:
@@ -71,10 +75,11 @@ def run_experiment(config: ExperimentConfig, data=None) -> Path:
             details = {"n_neighbors": config.knn_neighbors, "supervised": True}
             joblib.dump(model, method_dir / "model.joblib")
         else:
-            cls = TwoFactorVaDE if method == "gmvae" else VowelClassifier
+            cls = {"gmvae": TwoFactorVaDE, "gmvae_neural": NeuralVaDE, "gmvae_shared_w": SharedWGMVAE,
+                   "classifier": VowelClassifier}[method]
             model = cls(len(config.data.features), *counts, config.model)
             model, details = fit_neural(model, method, data, config, method_dir)
-            parts = ("train", "val", "test") if method == "gmvae" else ("val", "test")
+            parts = ("train", "val", "test") if method in ("gmvae", "gmvae_neural", "gmvae_shared_w") else ("val", "test")
             predictions = {part: predict_neural(model, method, data.x[part], config.training.batch_size,
                                                config.training.seed + 200) for part in parts}
             raw = {part: value[0] for part, value in predictions.items()}
@@ -84,7 +89,7 @@ def run_experiment(config: ExperimentConfig, data=None) -> Path:
                         "phonemes": data.phonemes, "speakers": data.speakers,
                         "training": details}, method_dir / "best.pt")
         mappings = None
-        if method == "gmvae":
+        if method in ("gmvae", "gmvae_neural", "gmvae_shared_w"):
             mappings = [fit_alignment(data.y["train"][:, c], raw["train"][:, c], size)
                         for c, size in enumerate(counts)]
             details["train_label_mappings"] = [m.tolist() for m in mappings]
@@ -93,8 +98,10 @@ def run_experiment(config: ExperimentConfig, data=None) -> Path:
             pred = raw[part] if mappings is None else np.column_stack([
                 mappings[c][raw[part][:, c]] for c in range(2)])
             scores = score_predictions(data.y[part], pred, counts)
-            if method == "gmvae":
+            if method in ("gmvae", "gmvae_neural", "gmvae_shared_w"):
                 scores["mixture_diagnostics"] = mixture_diagnostics(probabilities[part])
+                if method == "gmvae_shared_w":
+                    scores["w_diagnostics"] = shared_w_diagnostics(model, data.x[part], config.training.batch_size)
                 # Descriptive clustering statistic only; never used for selection.
                 oracle = np.column_stack([fit_alignment(data.y[part][:, c], raw[part][:, c], size)[raw[part][:, c]]
                                           for c, size in enumerate(counts)])
