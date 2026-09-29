@@ -67,6 +67,14 @@ def compare(old, new):
         'ARI/NMI/AMI compare unsupervised k-means assignments with ground truth; silhouette here uses ground-truth categories. '
         'All values describe this dataset, not held-out classification. Both runs fit imputation and standardization on all observations.',
     ]
+    paragraphs.append('## Main findings')
+    for view in VIEWS:
+        part = summary[summary.view.eq(view)].set_index('metric')
+        values = []
+        for metric in ['truth_silhouette','ari','nmi']:
+            row = part.loc[metric]
+            values.append(f"{metric}: {row.five_features:.4f} → {row.four_features:.4f} (change {row.delta_four_minus_five:+.4f})")
+        paragraphs.append(LABELS[view]+'. '+'; '.join(values)+'.')
     for metric in ['truth_silhouette','ari','nmi','ami','truth_davies_bouldin','truth_between_fraction','kmeans_silhouette']:
         table = summary[summary.metric.eq(metric)].drop(columns='metric').copy()
         table['view'] = table.view.map(LABELS)
