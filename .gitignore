@@ -3,3 +3,4 @@
 __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
+lab_projects/vowel_geometry/results*/
